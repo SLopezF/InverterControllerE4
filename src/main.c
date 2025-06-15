@@ -10,7 +10,7 @@
 #define F_MOTOR             1000         // Frecuencia del motor en Hz
 
 #define PWM_RES_HZ           10000000LL
-#define PWM_PERIOD_TICKS     (PWM_RES_HZ / (F_MOTOR * LUT_SIZE))         // 100 µs → 10 kHz PWM
+#define PWM_PERIOD_TICKS     (PWM_RES_HZ / (F_MOTOR * LUT_SIZE))
 #define DEADTIME_TICKS       40           // 2 µs de deadtime en subida y 2 µs en bajada
 
 // Pines de salida de cada fase
@@ -39,15 +39,23 @@ static const char *TAG = "mcpwm_gpio_sync";
 //Interrupción de actualización de variables de comparación
 bool isr_update_pwm_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
 {
-    gpio_set_level(Test_GPIO_OUTPUT, 1);
+
 
     static int index = -1;
     index = (index + 1) % LUT_SIZE; // Incrementar el índice cíclicamente
+
+    if(index == 0){
+        gpio_set_level(Test_GPIO_OUTPUT, 1);
+    }
+    else{
+        gpio_set_level(Test_GPIO_OUTPUT, 0);
+    }
+
+
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpA, lut[index]));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpB, lut[(index + LUT_SIZE / 3) % LUT_SIZE]));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpC, lut[(index + 2*LUT_SIZE / 3) % LUT_SIZE]));
     
-    gpio_set_level(Test_GPIO_OUTPUT, 0);
 
     return false;
 }
