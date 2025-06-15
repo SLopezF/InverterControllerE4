@@ -48,7 +48,7 @@ static void setup_square(mcpwm_gen_handle_t genH, mcpwm_gen_handle_t genL, mcpwm
 
 void app_main(void)
 {
-    // === 1. Configurar GPIO 5 como salida para generar el pulso ===
+    // 1. Configurar GPIO 5 como salida para generar el pulso
     gpio_config_t gpio_out_cfg = {
         .pin_bit_mask = 1ULL << SYNC_GPIO_OUTPUT,
         .mode = GPIO_MODE_OUTPUT,
