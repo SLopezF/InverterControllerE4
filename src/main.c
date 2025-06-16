@@ -7,7 +7,8 @@
 #include "rom/ets_sys.h"
 #include "driver/mcpwm_prelude.h"
 
-#define F_MOTOR             1000         // Frecuencia del motor en Hz
+#define F_MOTOR             100         // Frecuencia del motor en Hz
+#define F_MOTOR_MIN         100           // Frecuencia del motor en Hz
 
 #define PWM_RES_HZ           10000000LL
 #define PWM_PERIOD_TICKS     (PWM_RES_HZ / (F_MOTOR * LUT_SIZE))
@@ -29,9 +30,16 @@
 //Tamaño Look Up table
 #define LUT_SIZE             12
 
-uint16_t lut[LUT_SIZE];
-mcpwm_cmpr_handle_t cmpA, cmpB, cmpC;
+#define LUT_COUNT 2
+uint16_t lut_buffers[LUT_COUNT+1][LUT_SIZE]; // Crea un buffer extra para guardar el período y asegurarse que es una operación atómica
+volatile uint8_t active_lut_index = 0;
 
+uint16_t periodo = PWM_RES_HZ / ((F_MOTOR_MIN) * LUT_SIZE);
+
+mcpwm_cmpr_handle_t cmpA, cmpB, cmpC;
+mcpwm_timer_handle_t timerA, timerB, timerC;
+
+uint16_t debug = 0; 
 
 
 static const char *TAG = "mcpwm_gpio_sync";
@@ -39,7 +47,8 @@ static const char *TAG = "mcpwm_gpio_sync";
 //Interrupción de actualización de variables de comparación
 bool isr_update_pwm_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
 {
-
+    uint16_t *lut = lut_buffers[active_lut_index];//Apunto al LUT activo
+    uint16_t new_periodo = lut_buffers[LUT_COUNT][active_lut_index]; // 
 
     static int index = -1;
     index = (index + 1) % LUT_SIZE; // Incrementar el índice cíclicamente
@@ -51,8 +60,13 @@ bool isr_update_pwm_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_
         gpio_set_level(Test_GPIO_OUTPUT, 0);
     }
 
+    ESP_ERROR_CHECK(mcpwm_timer_set_period(timerA, new_periodo));
+    ESP_ERROR_CHECK(mcpwm_timer_set_period(timerB, new_periodo));
+    ESP_ERROR_CHECK(mcpwm_timer_set_period(timerC, new_periodo));
 
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpA, lut[index]));
+    debug = 416;
+
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpA, debug));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpB, lut[(index + LUT_SIZE / 3) % LUT_SIZE]));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpC, lut[(index + 2*LUT_SIZE / 3) % LUT_SIZE]));
     
@@ -109,7 +123,6 @@ void app_main(void)
     gpio_set_level(Test_GPIO_OUTPUT, 0);
 
     // === 2. Crear los 3 timers ===
-    mcpwm_timer_handle_t timerA, timerB, timerC;
     mcpwm_timer_config_t timer_cfg = {
         .group_id = 0,
         .clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT,
@@ -201,6 +214,19 @@ void app_main(void)
 
     ESP_ERROR_CHECK(mcpwm_timer_register_event_callbacks(timerA, &cb, NULL));
 
+    
+    //Poblar la LUT con valores senoidal de duty cycle en float
+    uint8_t next_lut = (active_lut_index + 1) % LUT_COUNT;
+
+    for (int i = 0; i < LUT_SIZE; i++) {
+        float angle = 2.0f * M_PI * i / LUT_SIZE;
+        float val = 0.5f + 0.5f * sinf(angle);  // entre 0 y 1
+        ESP_LOGI(TAG, "ANDOOO DEBUGUEANDOOO = %u", (uint16_t)(val * periodo));
+        lut_buffers[next_lut][i] = (uint16_t)(val * periodo);
+    }
+    lut_buffers[LUT_COUNT][next_lut] = PWM_RES_HZ / (F_MOTOR * LUT_SIZE);; // Guardar el período en el último elemento del LUT
+    active_lut_index = next_lut;  // atómico
+
     // === 9. Habilitar y arrancar timers ===
     ESP_ERROR_CHECK(mcpwm_timer_enable(timerA));
     ESP_ERROR_CHECK(mcpwm_timer_enable(timerB));
@@ -218,16 +244,25 @@ void app_main(void)
     ets_delay_us(2);  // Pulso de 2 µs
     gpio_set_level(SYNC_GPIO_OUTPUT, 0);
 
-    //Poblar la LUT con valores senoidal de duty cycle en float
-    for (int i = 0; i < LUT_SIZE; i++) {
-    float angle = 2.0f * M_PI * i / LUT_SIZE;
-    float val = 0.5f + 0.5f * sinf(angle);  // entre 0 y 1
-    lut[i] = (uint16_t)(val * PWM_PERIOD_TICKS);  // convertir a ticks
-    }
-
-    
+    uint16_t timer_i = 0;
     
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(20));
+
+
+        timer_i = (timer_i + 1) % (10 * F_MOTOR);
+
+        periodo = PWM_RES_HZ / ((F_MOTOR_MIN + timer_i) * LUT_SIZE);
+
+        next_lut = (active_lut_index + 1) % LUT_COUNT;
+
+        for (int i = 0; i < LUT_SIZE; i++) {
+            float angle = 2.0f * M_PI * i / LUT_SIZE;
+            float val = 0.5f + 0.5f * sinf(angle);  // entre 0 y 1
+            lut_buffers[next_lut][i] = (uint16_t)(val * periodo);
+        }
+        lut_buffers[LUT_COUNT][next_lut] = periodo; // Guardar el período en el último elemento del LUT
+        active_lut_index = next_lut;  // atómico
+
     }
 }
