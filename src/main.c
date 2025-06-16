@@ -66,7 +66,7 @@ bool isr_update_pwm_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_
 
     debug = 416;
 
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpA, debug));
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpA, lut[index]));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpB, lut[(index + LUT_SIZE / 3) % LUT_SIZE]));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(cmpC, lut[(index + 2*LUT_SIZE / 3) % LUT_SIZE]));
     
@@ -129,6 +129,9 @@ void app_main(void)
         .resolution_hz = PWM_RES_HZ,
         .period_ticks = PWM_PERIOD_TICKS,
         .count_mode = MCPWM_TIMER_COUNT_MODE_UP,
+        .flags = {
+            .update_period_on_empty = true, // Actualizar el periodo cuando el timer llegue a 0
+        },
     };
     ESP_ERROR_CHECK(mcpwm_new_timer(&timer_cfg, &timerA));
     ESP_ERROR_CHECK(mcpwm_new_timer(&timer_cfg, &timerB));
@@ -220,8 +223,7 @@ void app_main(void)
 
     for (int i = 0; i < LUT_SIZE; i++) {
         float angle = 2.0f * M_PI * i / LUT_SIZE;
-        float val = 0.5f + 0.5f * sinf(angle);  // entre 0 y 1
-        ESP_LOGI(TAG, "ANDOOO DEBUGUEANDOOO = %u", (uint16_t)(val * periodo));
+        float val = 0.5f + 0.4f * sinf(angle);  // entre 0 y 1
         lut_buffers[next_lut][i] = (uint16_t)(val * periodo);
     }
     lut_buffers[LUT_COUNT][next_lut] = PWM_RES_HZ / (F_MOTOR * LUT_SIZE);; // Guardar el período en el último elemento del LUT
@@ -258,7 +260,7 @@ void app_main(void)
 
         for (int i = 0; i < LUT_SIZE; i++) {
             float angle = 2.0f * M_PI * i / LUT_SIZE;
-            float val = 0.5f + 0.5f * sinf(angle);  // entre 0 y 1
+            float val = 0.5f + 0.35f * sinf(angle);  // entre 0 y 1
             lut_buffers[next_lut][i] = (uint16_t)(val * periodo);
         }
         lut_buffers[LUT_COUNT][next_lut] = periodo; // Guardar el período en el último elemento del LUT
